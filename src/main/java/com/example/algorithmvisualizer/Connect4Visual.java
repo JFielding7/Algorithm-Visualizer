@@ -1,12 +1,15 @@
 package com.example.algorithmvisualizer;
 
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.Node;
+import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
+import javafx.scene.shape.Line;
 
 import java.net.URL;
 import java.util.ArrayList;
@@ -21,11 +24,14 @@ public class Connect4Visual implements Initializable {
     static ArrayList<Integer> moveOrder = new ArrayList<>();
     static int[] tree = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, -1, 1, -1, -1, 1, 1, -1, 1, 1, 0, 1, 1, 0, 0, -1, 0, 0, 0, -1, -1, 0, 1, 1, 1, 1, 1, 1, 0, -1, 0, -1, 0, -1, 1, -1, 0, -1, 1, 0, -1, 1, -1, -1, 0, -1, -1, 1, 0, -1, 0, -1, -1, -1, 0, -1, -1, 1, -1, -1, 1, 1, -1, 0, 0, 0, 0, -1, 1, 0, -1, 0, -1, 0, -1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, -1, 1, -1, 1, -1, 0, -1, -1, -1, -1, 0, 0, -1, -1, -1, 1, -1, 1, -1, -1, -1, 0, 1, -1, 1, 1, 0, -1, 1, 0, 1, -1, 1, -1, 0, 0, 1};
     static int[] optimalMoveOrder = {1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 0, 1};
-    static int nodes = (1 << 20) - 1;
-    private Circle[] gameNodes = new Circle[nodes];
+    static int TOTAL_NODES = (1 << 8) - 1;
+    private Circle[] gameNodes = new Circle[TOTAL_NODES];
+    private Line[] gameEdges = new Line[TOTAL_NODES];
 
     public static void main(String[] args) {
-        int[] gameTree = new int[nodes];
+        System.out.println(Integer.highestOneBit(255));
+        System.exit(0);
+        int[] gameTree = new int[TOTAL_NODES];
 
         int iterations = 0;
 //        while (true) {
@@ -87,40 +93,110 @@ public class Connect4Visual implements Initializable {
 
     @FXML
     private VBox levels;
+    @FXML
+    private AnchorPane background;
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
+        for (int i = 0; i < TOTAL_NODES >> 1; i++) {
+            tree[i] = NOT_SOLVED;
+        }
+        for (int i = TOTAL_NODES >> 1; i < TOTAL_NODES; i++) {
+            tree[i] = rand.nextInt(-1, 2);
+            if (tree[i] > 1) tree[i] = 1;
+        }
         double RADIUS = 6;
-        int nodeCount = 1;
+        int nodeIndex = 0;
+        int rowCount = 1;
+        int y = 56;
         int i = 7;
         for (Node node : levels.getChildren()) {
             HBox level = (HBox) node;
             level.setSpacing(2 * RADIUS * ((1 << i) - 1));
-            for (int j = 0; j < nodeCount; j++) {
-                level.getChildren().add(createNode(RADIUS));
+            int x = (int) (level.getSpacing() / 2 + RADIUS);
+            for (int j = 0; j < rowCount; j++) {
+                Circle gameNode = createNode(RADIUS);
+                gameNodes[nodeIndex] = gameNode;
+                gameNode.setFill(Color.GRAY);
+                gameNode.setCenterX(x);
+                gameNode.setCenterY(y);
+                if (nodeIndex > 0) {
+                    Line edge = new Line();
+                    edge.setStartX(gameNodes[nodeIndex - 1 >>> 1].getCenterX());
+                    edge.setStartY(gameNodes[nodeIndex - 1 >>> 1].getCenterY());
+                    edge.setEndX(gameNode.getCenterX());
+                    edge.setEndY(gameNode.getCenterY());
+                    background.getChildren().add(edge);
+                    gameEdges[nodeIndex] = edge;
+                    edge.toBack();
+                }
+//                gameNode.setFill(getColor(tree[nodeIndex++], 7 - i));
+                nodeIndex++;
+                level.getChildren().add(gameNode);
+                x += (int) (level.getSpacing() + 2 * RADIUS);
             }
-            System.out.println(level.getSpacing());
-            nodeCount <<= 1;
+            rowCount <<= 1;
             i--;
+            y += 113;
         }
+        new Thread(() -> {
+            try {
+                solve(-1, 1, 2, 0);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }).start();
     }
 
-    private static int solve(int alpha, int beta, int branching, int index) {
+    static int pauseTime = 20;
+    private int solve(int alpha, int beta, int branchingFactor, int index) throws InterruptedException {
+        Platform.runLater(() -> gameNodes[index].setFill(Color.LIGHTGREEN));
+        Thread.sleep(pauseTime);
         int solution = tree[index];
-        if (solution != NOT_SOLVED) return solution;
+        if (solution != NOT_SOLVED) {
+            Platform.runLater(() -> gameNodes[index].setFill(getColor(solution, Integer.numberOfTrailingZeros(Integer.highestOneBit(index + 1)))));
+            Thread.sleep(pauseTime);
+            return solution;
+        }
         orderNum++;
-        int move = optimalMoveOrder[orderNum];
-        for (int i = 0; i < branching; i++) {
-            alpha = Math.max(alpha, -solve(-beta, -alpha, branching, (index << 1) + move + 1));
-            if (alpha >= beta) break;
+        int move = 0;
+        int maxEval = -1;
+        for (int i = 0; i < branchingFactor; i++) {
+            Platform.runLater(() -> gameNodes[index].setFill(Color.GRAY));
+            int eval = -solve(-beta, -alpha, branchingFactor, (index << 1) + move + 1);
+            alpha = Math.max(alpha, eval);
+            maxEval = Math.max(maxEval, eval);
+            Platform.runLater(() -> gameNodes[index].setFill(Color.LIGHTGREEN));
+            Thread.sleep(pauseTime);
+            if (alpha >= beta) {
+                if (i < branchingFactor - 1) prune(index * 2 + 2);
+                break;
+            }
             move ^= 1;
         }
-
+        int finalMaxEval = maxEval;
+        Platform.runLater(() -> gameNodes[index].setFill(getColor(finalMaxEval, Integer.numberOfTrailingZeros(Integer.highestOneBit(index + 1)))));
+        Thread.sleep(pauseTime);
         return alpha;
     }
 
+    private void prune(int index) {
+        gameNodes[index].setVisible(false);
+        gameEdges[index].setVisible(false);
+        if (index < TOTAL_NODES >>> 1) {
+            prune((index << 1) + 1);
+            prune((index << 1) + 2);
+        }
+    }
+
     private Circle createNode(double radius) {
-        Circle node = new Circle(radius, Color.RED);
-        return node;
+        return new Circle(radius, Color.RED);
+    }
+
+    private Color getColor(int minimax, int depth) {
+        if (minimax == NOT_SOLVED) return Color.GRAY;
+        if (minimax == 0) return Color.BLACK;
+        if ((minimax == 1) == ((depth & 1) == 0)) return Color.RED;
+        return Color.YELLOW;
     }
 }
